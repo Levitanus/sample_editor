@@ -5,7 +5,8 @@ import reapy as rpr
 
 from sample_editor.item_handler import ItemsHandler, ItemsError
 from sample_editor.gui import (
-    BaseArt, ValuesType, Wildcard, WildcardDict, wildcard_in_tokens, ArtError
+    BaseArt, ValuesType, Wildcard, WildcardDict, wildcard_in_tokens, ArtError,
+    REGION_KEY
 )
 from sample_editor.loudness import (
     get_rms, get_first_rms_value_ms, get_last_rms_value_ms
@@ -46,7 +47,7 @@ class Trem(BaseArt):
     @rpr.inside_reaper()
     def read(
         self, event: str, values: ValuesType, tokens: ty.List[str]
-    ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str]]:
+    ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str, object]]:
         wildcards: WildcardDict = {}
         if wildcard_in_tokens(tokens, Wildcard.articulation):
             wildcards[Wildcard.articulation] = 'trem'
@@ -54,22 +55,25 @@ class Trem(BaseArt):
             wildcards[Wildcard.dyn] = values[self.ns + 'dyn']  # type:ignore
         if event == self.ns + 'sus':
             rpr.Project().begin_undo_block()
-            ih = ItemsHandler()
-            start, end = ih.get_bounds(check_for_indentity=False)
-            try:
-                if values[self.ns + 'sus_marker']:  # type:ignore
-                    want_marker: ty.Optional[str] = '@Trem_sus_hard'
-                    median_rms = get_rms(ih, median=True)
-                    get_first_rms_value_ms(
-                        ih, median_rms, want_marker=want_marker
-                    )
-                else:
-                    want_marker = None
-                if wildcard_in_tokens(tokens, Wildcard.part):
-                    wildcards[Wildcard.part] = 'sus'
-                wildcards.update(self.process_wildcards(tokens))
-            except ItemsError as e:
-                raise ArtError(str(e))
-            print(f'returning {wildcards}, {start}, {end}, trem sus region')
-            return wildcards, start, end, 'trem sus region'
+            return self.mark_sus(values, tokens, wildcards)
         return None
+
+    def mark_sus(
+        self, values: ValuesType, tokens: ty.List[str], wildcards: WildcardDict
+    ) -> ty.Tuple[WildcardDict, float, float, str, object]:
+        ih = ItemsHandler()
+        start, end = ih.get_bounds(check_for_indentity=False)
+        try:
+            median_rms = get_rms(ih, median=True)
+            if values[self.ns + 'sus_marker']:  # type:ignore
+                want_marker: ty.Optional[str] = '@Trem_sus_hard'
+                get_first_rms_value_ms(ih, median_rms, want_marker=want_marker)
+            else:
+                want_marker = None
+            if wildcard_in_tokens(tokens, Wildcard.part):
+                wildcards[Wildcard.part] = 'sus'
+            wildcards.update(self.process_wildcards(tokens))
+        except ItemsError as e:
+            raise ArtError(str(e))
+        metadata = {'median_rms': median_rms}
+        return wildcards, start, end, 'trem sus region', metadata

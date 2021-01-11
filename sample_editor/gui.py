@@ -2,22 +2,21 @@ import typing as ty
 from abc import abstractmethod, ABC
 import importlib.machinery
 from pathlib import Path
-import sys
 import re
 import aenum
 import enum
-from itertools import chain
+from warnings import warn
 
 import PySimpleGUI as sg
 from .item_handler import ItemsHandler, ItemsError
 from .loop_finder import LoopFinder, LoopSlicer, LoopError
-from . import persistence
 from .pitch_tracker import estimate_entire_root
 from .loudness import get_rms, amplitude_to_db
 import reapy as rpr
-# from .tools import InsideUndoContext
 
-GUI_KEY = 'SampleEditor'
+GUI_SECTION = 'SampleEditor'
+GUI_KEY = 'CONTROL_VALUES'
+REGION_KEY = 'region_meta'
 LayoutType = ty.List[ty.List[sg.Element]]
 ValuesType = ty.Optional[ty.Union[ty.Dict[str, object], ty.List[object]]]
 SerializationType = ty.Dict[str, ty.Union[str, int, float]]
@@ -57,6 +56,7 @@ class GuiMember(ABC):
 
 
 class LoopSlicerGui(GuiMember):
+    """Internal Gui class used for make LoopSlicer section."""
 
     def __init__(self) -> None:
         self.layout = []
@@ -147,7 +147,6 @@ class LoopSlicerGui(GuiMember):
             return None
         if event != self.key_ns + 'make_loop':
             return None
-        print(event, values)
         assert isinstance(values, ty.Dict)
         with rpr.inside_reaper():
             rpr.Project().begin_undo_block()
@@ -168,7 +167,6 @@ class LoopSlicerGui(GuiMember):
                 )
             except (ItemsError, LoopError) as e:
                 return e
-            print(st_ofst, end_ofst)
             ls = LoopSlicer(ih, lf)
             ls.cut_and_fade(
                 st_ofst,
@@ -197,6 +195,27 @@ if ty.TYPE_CHECKING:
 else:
 
     class Wildcard(aenum.Enum):
+        """Used for manipulating of region mask wildcards.
+
+        Attributes
+        ----------
+        articulation : str
+        dyn : str
+        instrument : str
+        median : str
+        part : str
+        peak : str
+        rms : str
+        root : str
+
+        See Also
+        --------
+        has_wildcard()
+        replace_wildcard()
+        check_token_for_wildcards()
+        wildcard_in_tokens()
+        """
+
         root = '$root'
         peak = '$peak'
         rms = '$rms'
@@ -211,55 +230,129 @@ WildcardDict = ty.Dict[Wildcard, ty.Union[str, float]]
 
 
 def has_wildcard(string: str, wildcard: Wildcard) -> bool:
-    # print(f'has_wildcard({string}, {wildcard}={wildcard.value})')
+    """Check whether string contains wildcard.
+
+    Parameters
+    ----------
+    string : str
+    wildcard : Wildcard
+
+    Returns
+    -------
+    bool
+    """
     m = re.search(re.escape(wildcard.value), string)
-    # if string.find(wildcard.value) != -1:
     if m:
-        # print('--True')
         return True
-    # print('--False')
     return False
 
 
 def replace_wildcard(
     string: str, wildcard: Wildcard, repl: ty.Union[str, float]
 ) -> str:
-    return re.sub(re.escape(wildcard.value), str(repl), string)
+    """Replace wildcard with string.
+
+    Parameters
+    ----------
+    string : str
+    wildcard : Wildcard
+    repl : ty.Union[str, float]
+    """
+    return re.sub(re.escape(wildcard.value), str(repl), string)  # type:ignore
 
 
 def check_token_for_wildcards(token: str, wildcards: WildcardDict) -> str:
-    print(f'check_token_for_wildcards({token}, {wildcards})')
+    """Check if token contains one of wildcards.
+
+    Parameters
+    ----------
+    token : str
+    wildcards : WildcardDict
+        {Wildcard.mamber:replace_string}
+
+    Returns
+    -------
+    str
+        token with replaced wildcards.
+
+    Note
+    ----
+    If even one wildcard for token is missing — token will be omited.
+    """
     for wildcard, repl in wildcards.items():
         if has_wildcard(token, wildcard):
             token = replace_wildcard(token, wildcard, repl)
-            print(f'replaced: new_token={token}, {wildcard}, {repl}')
     if '$' in token:
-        print(f'$ in {token}')
         return ''
     return token
 
 
 def wildcard_in_tokens(tokens: ty.List[str], wildcard: Wildcard) -> bool:
-    # print(f'wildcard_in_tokens({tokens}, {wildcard})')
+    """Check whether particular wildcard presents in tokens.
+
+    Parameters
+    ----------
+    tokens : ty.List[str]
+    wildcard : Wildcard
+
+    Returns
+    -------
+    bool
+    """
     for token in tokens:
         if has_wildcard(token, wildcard):
-            # print('--True')
             return True
-    # print('--False')
     return False
 
 
 class BaseArt:
+    """Base class to use for making articulation slicing tools.
+
+     __init__ method has to define:
+        * articulation GUI layout in `self.layout`
+        * articulation name in `self.name`
+
+    read(
+        self, event: str, values: ValuesType, region_tokens: ty.List[str]
+    ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str, object]]:
+        is the main method for interaction with GUI.
+
+        * it can do any thing You wish, but if making of region is needed
+            method should return tuple:
+            (processed wildcards, region start, region end, region name,
+            region metadata)
+        * This method has to invoke `self.process_wildcards(tokens)`
+            for each returning region. It is the matter of choice —
+            when to invoke it: but for avoiding of unnecessary calculations
+            is better to call it right after preparing the region:
+            `wildcards.update(self.process_wildcards(tokens))`
+        * Any Exception raised inside this method will crash the GUI.
+            You should raise ArtError to display the error text in popup.
+
+    See `articulations_example.py` for inspiration.
+    """
+
     layout: LayoutType
     name: str
 
     @abstractmethod
     def read(
         self, event: str, values: ValuesType, region_tokens: ty.List[str]
-    ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str]]:
+    ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str, object]]:
         ...
 
     def process_wildcards(self, tokens: ty.List[str]) -> WildcardDict:
+        """Get WildcardDict for requested tokens.
+
+        Parameters
+        ----------
+        tokens : ty.List[str]
+
+        Returns
+        -------
+        WildcardDict
+            Calculates inly necessary features for tokens.
+        """
         ih = ItemsHandler()
         audio = ih.load_audio()
         wildcards: WildcardDict = {}
@@ -280,16 +373,52 @@ class BaseArt:
 
 
 class ArtError(Exception):
-    ...
+    """Special exception to be raised inside BaseArt.read() method."""
 
 
 class ArtsHandler:
+    """Big scary class making the main GUI work for articulations section.
+
+    Attributes
+    ----------
+    arts_file : Input
+        file with articulation classes
+    frame_layout : LayoutType
+    instrument_name : Input
+    key_ns : str
+        widgets key namespace
+    layout : LayoutType
+    load_btn : FileBrowse
+        to load articulations
+    region_mask : Input
+        for organizing region name
+    rendered_tracks_button : Button
+        to mark rendered tracks
+    rendered_tracks_text : Input
+        to keep rendered tracks GUID
+    sep_input : Inout
+        To request tokens separator
+    sep_text : Text
+    tabs_layout : LayoutType
+        used as parameter if articulations loaded
+    text_width : int
+        articulations section text fields width
+    wildcards_spin : Spin
+    """
 
     def __init__(
         self,
         tabs_layout: ty.Optional[LayoutType] = None,
         arts_instances: ty.Optional[ty.List[BaseArt]] = None
     ) -> None:
+        """
+        Parameters
+        ----------
+        tabs_layout : Optional[LayoutType], optional
+            If articulations layout is ready
+        arts_instances : Optional[List[BaseArt]], optional
+            If Articulations are loaded
+        """
         if arts_instances is None:
             arts_instances = []
         self.arts_instances: ty.List[BaseArt] = arts_instances
@@ -332,11 +461,27 @@ class ArtsHandler:
         )
         self.wildcards_spin = sg.Combo(
             [wc.value for wc in Wildcard],
+            size=(15, 1),
             key=self.key_ns + 'wildcards_spin',
             enable_events=True
         )
+        self.rendered_tracks_text = sg.Input(
+            'master',
+            disabled=True,
+            size=(50, 1),
+            key=self.key_ns + 'rendered_tracks_text',
+            tooltip='select tracks for adding in render matrix. '
+            'Master by default'
+        )
+        self.rendered_tracks_button = sg.Button(
+            'set tracks',
+            key=self.key_ns + 'rendered_tracks_button',
+            enable_events=True,
+            tooltip='select tracks and press. '
+            'if no track selected — master will be used.'
+        )
         if tabs_layout is None:
-            self.tab_layout = [
+            self.tabs_layout = [
                 [
                     sg.Tab(
                         'noting here',
@@ -345,99 +490,173 @@ class ArtsHandler:
                 ]
             ]
         else:
-            self.tab_layout = tabs_layout
+            self.tabs_layout = tabs_layout
         self.frame_layout = [
+            [self.rendered_tracks_text, self.rendered_tracks_button],
             [self.instrument_name, self.arts_file, self.load_btn],
             [
                 self.region_mask, self.wildcards_spin, self.sep_text,
                 self.sep_input
             ],
-            [sg.TabGroup(self.tab_layout)],
+            [sg.TabGroup(self.tabs_layout)],
         ]
         self.layout = [[sg.Frame('Articulation handler', self.frame_layout)]]
 
     def make_region(
-        self, wildcards: WildcardDict, start: float, end: float, undo_name: str
+        self, wildcards: WildcardDict, start: float, end: float,
+        undo_name: str, metadata: object
     ) -> rpr.Region:
+        """Make region and save metadata in project.
+
+        Note
+        ----
+        called in read() method if articulation returned region data.
+
+        Parameters
+        ----------
+        wildcards : WildcardDict
+        start : float
+        end : float
+        undo_name : str
+        metadata : object
+            any metadata to be stored inside project for current region index.
+        """
         tokens = self.region_tokens
         if wildcard_in_tokens(tokens, Wildcard.instrument):
             wildcards.update({Wildcard.instrument: self.instrument_name.get()})
         sep = self.sep_input.get()
         contents: ty.List[str] = []
-        for token in tokens:
-            if result := check_token_for_wildcards(token, wildcards):
-                print(f'--result: {result}')
-                contents.append(result)
+        for token_ in tokens:
+            if result_ := check_token_for_wildcards(token_, wildcards):
+                contents.append(result_)
         region_name = sep.join(contents)
         region = rpr.Project().add_region(start, end, name=region_name)
+        if self.rendered_tracks_text.get() == 'master':
+            tracks = [rpr.Project().master_track]
+        else:
+            tracks = [
+                rpr.Track.from_GUID(guid)
+                for guid in self.rendered_tracks_text.get().split(',')
+            ]
+        region.add_rendered_tracks(tracks)
+        rpr.Project().set_ext_state(
+            GUI_SECTION,
+            f'{REGION_KEY}_{region.index}',
+            metadata,
+            pickled=True
+        )
         rpr.Project().end_undo_block(undo_name)
         return region
 
     @property
     def region_tokens(self) -> ty.List[str]:
+        """Region name mask, split by tokens.
+
+        :type: List[str]
+        """
         return self.region_mask.get().split(',')  # type:ignore
 
     def read(
         self, event: str, values: ValuesType
     ) -> ty.Optional[ty.Union[Exception, ty.Tuple[LayoutType,
                                                   ty.List[BaseArt]]]]:
+        # check if arts can do something with event and need for region
         try:
             for art in self.arts_instances:
-                print(
-                    f'{self} ({id(self)}) is reading for {art}, event is {event}'
-                )
                 retval = art.read(event, values, self.region_tokens)
-                print(f'retval is {retval}')
                 if retval is not None:
                     self.make_region(*retval)
                     return None
         except ArtError as e:
             return e
 
+        if event == self.key_ns + 'rendered_tracks_button':
+            # mark tracks for use in render matrix
+            line = ','.join(
+                [track.GUID for track in rpr.Project().selected_tracks]
+            )
+            if not line:
+                self.rendered_tracks_text.Update('master')
+            else:
+                self.rendered_tracks_text.Update(line)
+
         if event == self.key_ns + 'wildcards_spin':
+            # add wildcard from Spin to Input
             self.region_mask.Update(
                 value=values[self.key_ns + 'region_mask'] +  # type:ignore
                 values[self.key_ns + 'wildcards_spin']  # type:ignore
             )
 
         if event == self.key_ns + 'arts_file':
-            path = Path(
-                ty.cast(str, values[self.key_ns + 'arts_file'])  # type:ignore
-            )
-            if not path.is_file():
-                return TypeError(f'file {path} does not exists')
-            name = path.name[:-len(path.suffix)]
-            loader = importlib.machinery.SourceFileLoader(name, str(path))
-            module = loader.load_module(loader.name)
-            loader.exec_module(module)
-
-            classes: ty.List[ty.Type[BaseArt]] = []
-            for name in dir(module):
-                obj = module.__dict__[name]
-                if not isinstance(obj, type):
-                    continue
-                if obj is BaseArt:
-                    continue
-                if issubclass(obj, BaseArt):
-                    classes.append(obj)
-            arts_instances = [cls_() for cls_ in classes]
-            return [
-                [sg.Tab(art.name, art.layout) for art in arts_instances]
-            ], arts_instances
+            return self.load_arts(values)
         return None
+
+    def load_arts(
+        self, values: ValuesType
+    ) -> ty.Tuple[LayoutType, ty.List[BaseArt]]:
+        """Load python file with articulations.
+
+        Parameters
+        ----------
+        values: ValuesType
+
+        Returns
+        -------
+        Tuple[LayoutType, List[BaseArt]]
+            Ready layout with articulations GUI and articulation instances
+        """
+        path = Path(
+            ty.cast(str, values[self.key_ns + 'arts_file'])  # type:ignore
+        )
+        name = path.name[:-len(path.suffix)]
+        loader = importlib.machinery.SourceFileLoader(name, str(path))
+        module = loader.load_module(loader.name)
+        loader.exec_module(module)
+
+        classes: ty.List[ty.Type[BaseArt]] = []
+        for name in dir(module):
+            obj = module.__dict__[name]
+            if not isinstance(obj, type):
+                continue
+            if obj is BaseArt:
+                continue
+            if issubclass(obj, BaseArt):
+                classes.append(obj)
+        arts_instances = [cls_() for cls_ in classes]
+        return [
+            [sg.Tab(art.name, art.layout) for art in arts_instances]
+        ], arts_instances
 
 
 def _load_values(window: sg.Window) -> None:
-    values = persistence.proj_loads(rpr.Project(), GUI_KEY)
+    """Get saved controls from project file.
+
+    Parameters
+    ----------
+    window : sg.Window
+    """
+    values = rpr.Project().get_ext_state(GUI_SECTION, GUI_KEY, pickled=True)
     if values in (None, ''):
         return
     for key, val in values.items():  # type:ignore
-        window[key].update(val)
+        try:
+            window[key].update(val)
+        except AttributeError as e:
+            warn(f'Cannot set value for element: {e}')
 
 
 def _make_window(
     loop_slicer: LoopSlicerGui, arts_handler: ArtsHandler, load_values: bool
 ) -> sg.Window:
+    """Make sg.Window and initialize values if needed.
+
+    Parameters
+    ----------
+    loop_slicer : LoopSlicerGui
+    arts_handler : ArtsHandler
+    load_values : bool
+        If True — project will be checked for saved controls data.
+    """
     layout = []
     for sub_lay in (loop_slicer.layout, arts_handler.layout):
         layout.extend(sub_lay)
@@ -446,11 +665,40 @@ def _make_window(
     window.Finalize()
     if load_values:
         _load_values(window)
+        arts_handler.load_btn.Update('Load arts')
     return window
 
 
+def check_for_exception(result: ty.Optional[Exception]) -> None:
+    if result is None:
+        return
+    sg.popup_error(str(result))
+
+
+def ah_read(
+    ah: ArtsHandler, event: str, values: ValuesType, serialized: ValuesType,
+    ls: LoopSlicerGui, load_values: bool, window: sg.Window
+) -> ty.Tuple[ArtsHandler, sg.Window]:
+    ah_read_ret = ah.read(event, values)
+    if isinstance(ah_read_ret, tuple) and isinstance(ah_read_ret[0], ty.List):
+        ah = ArtsHandler(
+            tabs_layout=ah_read_ret[0], arts_instances=ah_read_ret[1]
+        )
+        ls = LoopSlicerGui()
+        if serialized is not None:
+            rpr.Project().set_ext_state(
+                GUI_SECTION, GUI_KEY, serialized, pickled=True
+            )
+        wind1 = _make_window(ls, ah, load_values)
+        window.close()
+        window = wind1
+    else:
+        check_for_exception(ah_read_ret)  # type:ignore
+    return ah, window
+
+
 def run(load_values: bool = True) -> None:
-    """Main gui function, used to launch script.
+    """Main GUI function, used to launch script.
 
     Parameters
     ----------
@@ -459,12 +707,14 @@ def run(load_values: bool = True) -> None:
     """
     ls = LoopSlicerGui()
     ah = ArtsHandler()
+    if load_values:
+        serialized = rpr.Project().get_ext_state(
+            GUI_SECTION, GUI_KEY, pickled=True
+        )
+        if serialized and serialized[ah.key_ns + 'arts_file'] != '':
+            tabs_layout, arts = ah.load_arts(serialized)
+            ah = ArtsHandler(tabs_layout, arts)
     window = _make_window(ls, ah, load_values)
-
-    def check_for_exception(result: ty.Optional[Exception]) -> None:
-        if result is None:
-            return
-        sg.popup_error(str(result))
 
     serialized = None
     while True:
@@ -475,21 +725,11 @@ def run(load_values: bool = True) -> None:
         serialized = values
 
         check_for_exception(ls.read(event, values))
-        ah_read_ret = ah.read(event, values)
-        if isinstance(ah_read_ret,
-                      tuple) and isinstance(ah_read_ret[0], ty.List):
-            ah = ArtsHandler(
-                tabs_layout=ah_read_ret[0], arts_instances=ah_read_ret[1]
-            )
-            ls = LoopSlicerGui()
-            if serialized is not None:
-                persistence.proj_dumps(rpr.Project(), GUI_KEY, serialized)
-            wind1 = _make_window(ls, ah, load_values)
-            window.close()
-            window = wind1
-        else:
-            ah.read(event, values)
-            # check_for_exception(ah.read(event, values))  # typeLignore
+        ah, window = ah_read(
+            ah, event, values, serialized, ls, load_values, window
+        )
     if serialized is not None:
-        persistence.proj_dumps(rpr.Project(), GUI_KEY, serialized)
+        rpr.Project().set_ext_state(
+            GUI_SECTION, GUI_KEY, serialized, pickled=True
+        )
     window.close()
