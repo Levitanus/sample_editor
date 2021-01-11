@@ -1,4 +1,5 @@
 import reapy as rpr
+import typing as ty
 import librosa as lr
 import soundfile as sf
 
@@ -42,5 +43,5 @@ from sample_editor import gui
 # render_tools.make_region_from_selected_items_or_ts(
 #     f'test {root}', rendered_tracks
 # )
-
-gui.run(False)
+# persistence.proj_dumps(rpr.Project(), gui.GUI_KEY, '')
+gui.run()

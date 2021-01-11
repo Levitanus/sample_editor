@@ -371,6 +371,53 @@ class BaseArt:
                 wildcards.update({Wildcard.median: '{:5.2f}'.format(median)})
         return wildcards
 
+    def get_closest_region(
+        self, direction: str
+    ) -> ty.Optional[ty.Tuple[rpr.Region, object]]:
+        """Find closest Region with articulation metadata.
+
+        Parameters
+        ----------
+        direction : str
+            'left' or 'right'
+
+        Returns
+        -------
+        Optional[Tuple[reapy.Region, object]]
+            region and metadata if any
+        """
+        pr = rpr.Project()
+        assert direction in (
+            'left', 'right'
+        ), "direction can be only 'left' or 'right'"
+        if direction == 'left':
+            start = .0
+        else:
+            start = pr.length
+        closest: ty.Optional[ty.Tuple[rpr.Region, object]] = None
+        for reg in pr.regions:
+            key = f'{REGION_KEY}_{reg.index}_{self.name}'
+            if metadata := pr.get_ext_state(GUI_SECTION, key, pickled=True):
+                if (
+                    direction == 'left' and
+                    pr.cursor_position > reg.start > start
+                ):
+                    start = reg.start
+                    closest = reg, metadata
+                    continue
+                if (
+                    direction == 'right' and
+                    pr.cursor_position < reg.start < start
+                ):
+                    start = reg.start
+                    closest = reg, metadata
+                    continue
+            print(f'key is {key}, metadata is {metadata}, start is {start}')
+        if closest is not None:
+            return closest
+
+        return None
+
 
 class ArtError(Exception):
     """Special exception to be raised inside BaseArt.read() method."""
@@ -468,7 +515,7 @@ class ArtsHandler:
         self.rendered_tracks_text = sg.Input(
             'master',
             disabled=True,
-            size=(50, 1),
+            size=(self.text_width + 20, 1),
             key=self.key_ns + 'rendered_tracks_text',
             tooltip='select tracks for adding in render matrix. '
             'Master by default'
@@ -504,7 +551,7 @@ class ArtsHandler:
 
     def make_region(
         self, wildcards: WildcardDict, start: float, end: float,
-        undo_name: str, metadata: object
+        undo_name: str, metadata: object, art: BaseArt
     ) -> rpr.Region:
         """Make region and save metadata in project.
 
@@ -539,12 +586,13 @@ class ArtsHandler:
                 for guid in self.rendered_tracks_text.get().split(',')
             ]
         region.add_rendered_tracks(tracks)
-        rpr.Project().set_ext_state(
-            GUI_SECTION,
-            f'{REGION_KEY}_{region.index}',
-            metadata,
-            pickled=True
-        )
+        key = f'{REGION_KEY}_{region.index}_{art.name}'
+        print(f'made region with\n -key: {key},\n -metadata: {metadata}')
+        rpr.Project().set_ext_state(GUI_SECTION, key, metadata, pickled=True)
+        # # toggle repeat
+        # rpr.perform_action(1068)
+        # rpr.perform_action(1068)
+        # rpr.update_timeline()
         rpr.Project().end_undo_block(undo_name)
         return region
 
@@ -565,7 +613,7 @@ class ArtsHandler:
             for art in self.arts_instances:
                 retval = art.read(event, values, self.region_tokens)
                 if retval is not None:
-                    self.make_region(*retval)
+                    self.make_region(*retval, art)
                     return None
         except ArtError as e:
             return e

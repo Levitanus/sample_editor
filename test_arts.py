@@ -56,7 +56,28 @@ class Trem(BaseArt):
         if event == self.ns + 'sus':
             rpr.Project().begin_undo_block()
             return self.mark_sus(values, tokens, wildcards)
+        if event == self.ns + 'release_cut':
+            self.release_cut()
+            return None
         return None
+
+    def release_cut(self) -> None:
+        metadata = self.get_closest_region('left')
+        if not metadata or 'median' not in metadata:
+            proceed = sg.PopupOKCancel(
+                '''\
+                Cannot find previous Trem region with sus metadata.
+                If proceed release cut now, it won't be connected to the median
+                sus rms, which helps to mix sus and release.
+
+                Really proceed?
+                '''
+            )
+            print(proceed)
+            if proceed == 'Cancel':
+                print('canceled')
+                return
+            raise ArtError('Apparentelly, this use-case is not implemented')
 
     def mark_sus(
         self, values: ValuesType, tokens: ty.List[str], wildcards: WildcardDict
