@@ -43,7 +43,8 @@ def get_rms(items_handler: ItemsHandler, median: bool = False) -> float:
 def get_first_rms_value_ms(
     items_handler: ItemsHandler,
     rms_target: float,
-    want_marker: ty.Optional[str] = None
+    want_marker: ty.Optional[str] = None,
+    below: bool = False
 ) -> float:
     """Get time in ms of the first rms value above target rms.
 
@@ -53,12 +54,20 @@ def get_first_rms_value_ms(
     rms_target : float
     want_marker : ty.Optional[str], optional
         if None — no marker placed, if string — maker with name is placed
-    items_handler : ItemsHandler
+    below : bool, optional
+        return first value lower than target, False by default
+
+    Returns
+    -------
+    float
+        start offset from search area
     """
     audio = items_handler.load_audio()[0]
     rms = lr.feature.rms(y=audio)[0]
     for index, val in enumerate(rms):
-        if val >= rms_target:
+        if val >= rms_target and not below:
+            break
+        if val <= rms_target and below:
             break
         if index == len(rms):
             raise ValueError('no rms above target')
