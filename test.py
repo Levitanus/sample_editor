@@ -44,4 +44,5 @@ from sample_editor import gui
 #     f'test {root}', rendered_tracks
 # )
 # persistence.proj_dumps(rpr.Project(), gui.GUI_KEY, '')
+# print(rpr.Project().regions)
 gui.run()
