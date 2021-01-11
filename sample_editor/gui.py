@@ -20,6 +20,15 @@ REGION_KEY = 'region_meta'
 LayoutType = ty.List[ty.List[sg.Element]]
 ValuesType = ty.Optional[ty.Union[ty.Dict[str, object], ty.List[object]]]
 SerializationType = ty.Dict[str, ty.Union[str, int, float]]
+FADE_SHAPES = {
+    'flat': 0,
+    'smooth up': 1,
+    'smooth down': 2,
+    'har up': 3,
+    'hard down': 4,
+    'smooth spline': 5,
+    'hard spline': 6
+}
 
 
 class GuiMember(ABC):
@@ -114,15 +123,7 @@ class LoopSlicerGui(GuiMember):
             tooltip='порог корреляции, ниже которого вылетает ошибка',
             key=self.key_ns + 'corr_min_treshold'
         )
-        self.cross_shapes = {
-            'flat': 0,
-            'smooth up': 1,
-            'smooth down': 2,
-            'har up': 3,
-            'hard down': 4,
-            'smooth spline': 5,
-            'hard spline': 6
-        }
+        self.cross_shapes = FADE_SHAPES
         self.cross_shape = sg.Combo(
             list(self.cross_shapes.keys()),
             default_value='smooth up',
