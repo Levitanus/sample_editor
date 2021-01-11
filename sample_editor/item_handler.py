@@ -271,15 +271,19 @@ class ItemsHandler:
         for item in self.item_handlers:
             item.item.delete()
 
-    def get_bounds(self,
-                   check_for_indentity: bool = False
-                   ) -> ty.Tuple[float, float]:
-        """Get bounds of items, regardless of time selection.
+    def get_bounds(
+        self,
+        check_for_indentity: bool = False,
+        count_ts: bool = False
+    ) -> ty.Tuple[float, float]:
+        """Get bounds of items.
 
         Parameters
         ----------
         check_for_indentity : bool, optional
             If bounds should be Identical.
+        count_ts : bool, optional
+            If should count time selection as bound, default to False.
 
         Returns
         -------
@@ -301,6 +305,13 @@ class ItemsHandler:
                 left = position
             if position + length > right:
                 right = position + length
+        if count_ts:
+            ts = self.pr.time_selection
+            if ts.start == ts.end:
+                return left, right
+            ts_l, ts_r = ts.start, ts.end
+            left = max(left, ts_l)
+            right = min(right, ts_r)
         return left, right
 
     @property
