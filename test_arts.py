@@ -112,7 +112,7 @@ class Trem(BaseArt):
         if event == self.ns + 'release_region':
             return self.make_release_region(values, wildcards, tokens)
         if event == self.ns + 'make_release_fades':
-            self.fade_out_all_releases(values, retval)
+            self.fade_out_all_releases(values)
 
         return None
 
@@ -127,7 +127,6 @@ class Trem(BaseArt):
         )
         if not retval:
             return None
-            # ...
         else:
             cut_handler, median = retval
         wildcards.update(self.process_wildcards(tokens))
@@ -143,7 +142,6 @@ class Trem(BaseArt):
     def fade_out_all_releases(
         self,
         values: ValuesType,
-        retval: ty.Tuple[rpr.Region, ty.Dict[str, object]],
     ) -> None:
         with rpr.undo_block(
             'set all releases fade-outs to {time}'.format(
