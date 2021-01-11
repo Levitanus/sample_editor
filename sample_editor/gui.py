@@ -419,6 +419,27 @@ class BaseArt:
 
         return None
 
+    def get_all_regions(self) -> ty.List[ty.Tuple[rpr.Region, object]]:
+        """Find closest Region with articulation metadata.
+
+        Parameters
+        ----------
+        direction : str
+            'left' or 'right'
+
+        Returns
+        -------
+        Optional[Tuple[reapy.Region, object]]
+            region and metadata if any
+        """
+        pr = rpr.Project()
+        regions: ty.List[ty.Tuple[rpr.Region, object]] = []
+        for reg in pr.regions:
+            key = f'{REGION_KEY}_{reg.index}_{self.name}'
+            if metadata := pr.get_ext_state(GUI_SECTION, key, pickled=True):
+                regions.append((reg, metadata))
+        return regions
+
 
 class ArtError(Exception):
     """Special exception to be raised inside BaseArt.read() method."""
