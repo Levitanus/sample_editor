@@ -3,7 +3,7 @@ import PySimpleGUI as sg
 from aenum import extend_enum
 import reapy as rpr
 
-from sample_editor.item_handler import ItemsHandler, ItemsError
+from sample_editor.item_handler import ItemsHandler, ItemHandler, ItemsError
 from sample_editor.gui import (
     BaseArt, ValuesType, Wildcard, WildcardDict, wildcard_in_tokens, ArtError,
     REGION_KEY, FADE_SHAPES
@@ -14,8 +14,8 @@ from sample_editor.loudness import (
 )
 from sample_editor.pitch_tracker import estimate_entire_root
 
-# for name, value in (('dynmusical', '$dynmusical'), ):
-#     extend_enum(Wildcard, name, value)
+for name, value in (('sul', '$sul'), ):
+    extend_enum(Wildcard, name, value)
 
 
 class Trem(BaseArt):
@@ -26,16 +26,42 @@ class Trem(BaseArt):
         self.sus_marker = sg.Check(
             'marker on hard attack', default=True, key=self.ns + 'sus_marker'
         )
+        self.sus_want_cut = sg.Check(
+            'want cut',
+            default=True,
+            key=self.ns + 'sus_want_cut',
+            tooltip='if checked — part left to the sus will be erased'
+        )
+
         self.rel_bt = sg.Button('cut release', key=self.ns + 'release_cut')
         self.rel_reg_bt = sg.Button(
             'release region', key=self.ns + 'release_region'
         )
+        self.release_region_want_cut = sg.Check(
+            'want cut', default=True, key=self.ns + 'release_region_want_cut'
+        )
+
         self.dyn = sg.Combo(
             values=['ff', 'f', 'p', 'pp'],
             default_value='ff',
             key=self.ns + 'dyn',
         )
+        self.sul = sg.Combo(
+            values=['sulTop', 'SulBot'],
+            default_value='sulBot',
+            key=self.ns + 'sul',
+        )
         silence_def = .1
+        self.sus_silense_sl = sg.Slider(
+            range=(-60, 0),
+            resolution=.001,
+            key=self.ns + 'sus_silence_treshold',
+            tooltip='threshold in dB to count as sustain silence',
+            # enable_events=True,
+            default_value=silence_def,
+            orientation='h',
+            size=(30, 10)
+        )
         self.silense_sl = sg.Slider(
             range=(-60, 0),
             resolution=.001,
@@ -69,13 +95,14 @@ class Trem(BaseArt):
         self.layout = [
             [
                 self.sus_bt,
-                self.sus_marker,
+                sg.Column([[self.sus_want_cut], [self.sus_marker]]),
                 self.dyn,
+                self.sul,
                 self.rel_bt,
-                self.rel_reg_bt,
+                sg.Column([[self.rel_reg_bt], [self.release_region_want_cut]]),
             ],
             [
-                self.silense_sl,
+                sg.Column([[self.sus_silense_sl], [self.silense_sl]]),
                 sg.Column(
                     [
                         [self.fade_out_sl],
@@ -94,41 +121,58 @@ class Trem(BaseArt):
             wildcards[Wildcard.articulation] = 'trem'
         if wildcard_in_tokens(tokens, Wildcard.dyn):
             wildcards[Wildcard.dyn] = values[self.ns + 'dyn']  # type:ignore
+        if wildcard_in_tokens(tokens, Wildcard.sul):
+            wildcards[Wildcard.sul] = values[self.ns + 'sul']  # type:ignore
 
         # small GUI interactions
 
         # big funcs
-        if event == self.ns + 'sus':
-            rpr.Project().begin_undo_block()
-            return self.mark_sus(values, tokens, wildcards)
-        if event == self.ns + 'release_cut':
-            with rpr.undo_block('cut release', flags=-1):
-                self.release_cut(
-                    db_to_amplitude(values[self.ns + 'silence_treshold']),
-                    values[self.ns + 'rel_fade_out_shape'],
-                    values[self.ns + 'rel_fade_out_time']
+        try:
+            if event == self.ns + 'sus':
+                rpr.Project().begin_undo_block()
+                return self.mark_sus(values, tokens, wildcards)
+            if event == self.ns + 'release_cut':
+                with rpr.undo_block('cut release', flags=-1):
+                    self.release_cut(
+                        db_to_amplitude(values[self.ns + 'silence_treshold']),
+                        values[self.ns + 'rel_fade_out_shape'],
+                        values[self.ns + 'rel_fade_out_time']
+                    )
+                return None
+            if event == self.ns + 'release_region':
+                return self.make_release_region(
+                    values, wildcards, tokens,
+                    values[self.ns + 'release_region_want_cut']
                 )
-            return None
-        if event == self.ns + 'release_region':
-            return self.make_release_region(values, wildcards, tokens)
-        if event == self.ns + 'make_release_fades':
-            self.fade_out_all_releases(values)
+            if event == self.ns + 'make_release_fades':
+                self.fade_out_all_releases(values)
+        except ItemsError as e:
+            raise ArtError(e)
 
         return None
 
     def make_release_region(
-        self, values: ValuesType, wildcards: WildcardDict, tokens: ty.List[str]
+        self, values: ValuesType, wildcards: WildcardDict,
+        tokens: ty.List[str], want_cut: bool
     ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str, object]]:
         rpr.Project().begin_undo_block()
-        retval = self.release_cut(
-            db_to_amplitude(values[self.ns + 'silence_treshold']),
-            values[self.ns + 'rel_fade_out_shape'],
-            values[self.ns + 'rel_fade_out_time']
-        )
-        if not retval:
-            return None
+        if want_cut:
+            retval = self.release_cut(
+                db_to_amplitude(values[self.ns + 'silence_treshold']),
+                values[self.ns + 'rel_fade_out_shape'],
+                values[self.ns + 'rel_fade_out_time']
+            )
+            if not retval:
+                return None
+            else:
+                cut_handler, median = retval
         else:
-            cut_handler, median = retval
+            cut_handler = ItemsHandler()
+            ret_meta = self.get_metadata_safe('left')
+            if ret_meta is None:
+                return None
+            reg, metadata = ret_meta
+            median = metadata['median_rms']
         wildcards.update(self.process_wildcards(tokens))
         if wildcard_in_tokens(tokens, Wildcard.part):
             wildcards[Wildcard.part] = 'rls'
@@ -157,7 +201,10 @@ class Trem(BaseArt):
                 for rls_tuple in rls_regs:
                     reg, metadata = rls_tuple
                     for item in pr.items:
-                        if item.position >= reg.start and item.position + item.length <= reg.end:
+                        if (
+                            item.position >= reg.start and
+                            item.position + item.length <= reg.end
+                        ):
                             item.is_selected = True
                         else:
                             item.is_selected = False
@@ -179,10 +226,9 @@ class Trem(BaseArt):
             root = ty.cast(str, wildcards[Wildcard.root])
         return root
 
-    def release_cut(
-        self, silence_level: float, fade_out_shape: str, fade_out_time: float
-    ) -> ty.Optional[ty.Tuple[ItemsHandler, float]]:
-
+    def get_metadata_safe(
+        self, direction: str
+    ) -> ty.Optional[ty.Tuple[rpr.Region, ty.Dict[str, object]]]:
         retval = self.get_closest_region('left')
         if retval:
             reg, metadata = retval
@@ -200,6 +246,12 @@ class Trem(BaseArt):
                 print('canceled')
                 return None
             raise ArtError('Apparently, this use-case is not implemented')
+        return reg, metadata  # type:ignore
+
+    def release_cut(
+        self, silence_level: float, fade_out_shape: str, fade_out_time: float
+    ) -> ty.Optional[ty.Tuple[ItemsHandler, float]]:
+        reg, metadata = self.get_metadata_safe('left')
         median = metadata['median_rms']
         ih = ItemsHandler()
         point = get_last_rms_value_ms(
@@ -232,12 +284,25 @@ class Trem(BaseArt):
             if values[self.ns + 'sus_marker']:  # type:ignore
                 want_marker: ty.Optional[str] = '@Trem_sus_hard'
                 get_first_rms_value_ms(ih, median_rms, want_marker=want_marker)
-            else:
-                want_marker = None
+            split_ih = ItemsHandler(
+                item_handlers=[
+                    i_h for i_h in ih.item_handlers
+                    if i_h.item.position == start
+                ]
+            )
+            if values[self.ns + 'sus_want_cut']:  # type:ignore
+                start_split = get_first_rms_value_ms(
+                    split_ih,
+                    db_to_amplitude(values[self.ns + 'sus_silence_treshold'])
+                )
+                left, split_ih = split_ih.split(start + start_split)
+                left.delete()
+                start, _ = split_ih.get_bounds(check_for_indentity=False)
             if wildcard_in_tokens(tokens, Wildcard.part):
                 wildcards[Wildcard.part] = 'sus'
             wildcards.update(self.process_wildcards(tokens))
         except ItemsError as e:
             raise ArtError(str(e))
-        metadata = {'median_rms': median_rms, 'part': 'sus'}
+        root = self.get_root(wildcards, split_ih)
+        metadata = {'median_rms': median_rms, 'part': 'sus', 'root': root}
         return wildcards, start, end, 'trem sus region', metadata
