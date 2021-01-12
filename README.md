@@ -6,4 +6,4 @@ Docs are coming with the first minor release.
 
 ## example of work:
 
-https://user-images.githubusercontent.com/29713891/104379524-27527680-555c-11eb-8ff4-a0441676481b.mp4
+[![Youtube exmple of work](http://img.youtube.com/vi/b96FaK4dTUc/0.jpg)](http://www.youtube.com/watch?v=b96FaK4dTUc "Video Title")
