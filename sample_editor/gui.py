@@ -413,7 +413,6 @@ class BaseArt:
                     start = reg.start
                     closest = reg, metadata
                     continue
-            print(f'key is {key}, metadata is {metadata}, start is {start}')
         if closest is not None:
             return closest
 
@@ -609,7 +608,6 @@ class ArtsHandler:
             ]
         region.add_rendered_tracks(tracks)
         key = f'{REGION_KEY}_{region.index}_{art.name}'
-        print(f'made region with\n -key: {key},\n -metadata: {metadata}')
         rpr.Project().set_ext_state(GUI_SECTION, key, metadata, pickled=True)
         # # toggle repeat
         # rpr.perform_action(1068)
