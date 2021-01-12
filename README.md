@@ -6,4 +6,4 @@ Docs are coming with the first minor release.
 
 ## example of work:
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/b96FaK4dTUc" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+https://user-images.githubusercontent.com/29713891/104379524-27527680-555c-11eb-8ff4-a0441676481b.mp4
