@@ -2,10 +2,13 @@ import reapy as rpr
 import typing as ty
 import librosa as lr
 import soundfile as sf
+import matplotlib.pyplot as plt
+import numpy as np
 
 from sample_editor import item_handler
 from sample_editor import loop_finder
 from sample_editor import loudness
+from sample_editor import tools
 
 from sample_editor.pitch_tracker import estimate_entire_root
 from sample_editor import render_tools
@@ -45,4 +48,28 @@ from sample_editor import gui
 # )
 # persistence.proj_dumps(rpr.Project(), gui.GUI_KEY, '')
 # print(rpr.Project().regions)
-gui.run()
+
+# sr = 22050
+# ih = item_handler.ItemsHandler()
+# sr = ih.sr
+# # # audio = ih.load_audio()[0]
+# onsets, backtrack, env = loudness.detect_onsets(
+#     ih,
+#     pre_max=.4,
+#     wait=2.5,
+#     fmin=500,
+#     delta=.5,
+#     units=tools.LengthUnit.frames
+#     # backtrack_markers='@backtrack',
+#     # onset_markers='@onset',
+# )
+# print(onsets, backtrack, env, sep='\n---')
+# times = lr.times_like(env, sr)
+# plt.figure(1)
+# plt.plot(times, env)
+# plt.vlines(times[onsets], env.min(), env.max(), color='r')
+# plt.vlines(times[backtrack], env.min(), env.max(), color='y')
+# plt.show()
+
+theme = 'SandyBeach'
+gui.run(theme=theme)
