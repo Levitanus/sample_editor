@@ -200,6 +200,8 @@ class ItemsHandler:
         self.pr = rpr.Project()
         self.item_handlers = self._get_items(
         ) if item_handlers is None else item_handlers
+        self._audios: ty.Optional[ty.List[ty.Iterable[float]]] = None
+        self._audio_mono: ty.Optional[ty.List[ty.Iterable[float]]] = None
 
     @rpr.inside_reaper()
     def _get_items(self) -> ty.List[ItemHandler]:
@@ -217,6 +219,7 @@ class ItemsHandler:
         Parameters
         ----------
         position : float
+            absolute position in seconds
 
         Returns
         -------
@@ -232,6 +235,22 @@ class ItemsHandler:
         return ItemsHandler(sr=self.sr, item_handlers=itms_l), ItemsHandler(
             sr=self.sr, item_handlers=itms_r
         )
+
+    def split_by_items_gaps(self) -> ty.List['ItemsHandler']:
+        """Get ItemsHadler for each of item group in timeline.
+
+        Returns
+        -------
+        ty.List['ItemsHandler']
+        """
+        times: ty.Dict[ty.Tuple[float, float], ty.List[ItemHandler]] = {}
+        for ih in self.item_handlers:
+            bounds = ih.item.position, ih.item.position + ih.item.length
+            if bounds in times:
+                times[bounds].append(ih)
+                continue
+            times[bounds] = [ih]
+        return [ItemsHandler(self.sr, ihs) for ihs in times.values()]
 
     def make_copy(
         self,
@@ -390,6 +409,10 @@ class ItemsHandler:
         ItemsError
             If items are not identical
         """
+        if mono and self._audio_mono is not None:
+            return self._audio_mono
+        if not mono and self._audios is not None:
+            return self._audios
         with rpr.inside_reaper():
             items_handler = self
             if not self.are_bounds_identical:
@@ -401,8 +424,10 @@ class ItemsHandler:
                 y = ih.load_audio(reaper_vol=reaper_vol)
                 audios.append(y)
         if mono:
-            return [np.sum(audios, 0)]
-        return np.column_stack(audios)  # type:ignore
+            self._audio_mono = [np.sum(audios, 0)]
+            return self._audio_mono
+        self._audios = np.column_stack(audios)
+        return self._audios  # type:ignore
 
     def fade_in(self, length: float, shape: int = 0) -> None:
         with rpr.inside_reaper():

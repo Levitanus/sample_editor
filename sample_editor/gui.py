@@ -306,6 +306,9 @@ def wildcard_in_tokens(tokens: ty.List[str], wildcard: Wildcard) -> bool:
     return False
 
 
+RegionContents = ty.Tuple[WildcardDict, float, float, str, object]
+
+
 class BaseArt:
     """Base class to use for making articulation slicing tools.
 
@@ -338,11 +341,26 @@ class BaseArt:
 
     @abstractmethod
     def read(
-        self, event: str, values: ValuesType, region_tokens: ty.List[str]
-    ) -> ty.Optional[ty.Tuple[WildcardDict, float, float, str, object]]:
+        self, event: str, values: ValuesFilledType, region_tokens: ty.List[str]
+    ) -> ty.Optional[ty.List[RegionContents]]:
         ...
 
-    def process_wildcards(self, tokens: ty.List[str]) -> WildcardDict:
+    def get_root(
+        self, wildcards: WildcardDict, items_handler: ItemsHandler
+    ) -> str:
+        if Wildcard.root not in wildcards:
+            root = estimate_entire_root(
+                items_handler.load_audio()[0], sr=items_handler.sr
+            )
+        else:
+            root = ty.cast(str, wildcards[Wildcard.root])
+        return root
+
+    def process_wildcards(
+        self,
+        tokens: ty.List[str],
+        items_handler: ty.Optional[ItemsHandler] = None
+    ) -> WildcardDict:
         """Get WildcardDict for requested tokens.
 
         Parameters
