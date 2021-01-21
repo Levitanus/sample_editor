@@ -6,6 +6,8 @@ import re
 import aenum
 import enum
 from warnings import warn
+import pickle
+from pprint import pprint
 
 import PySimpleGUI as sg
 from .item_handler import ItemsHandler, ItemsError
@@ -18,8 +20,9 @@ GUI_SECTION = 'SampleEditor'
 GUI_KEY = 'CONTROL_VALUES'
 REGION_KEY = 'region_meta'
 LayoutType = ty.List[ty.List[sg.Element]]
-ValuesType = ty.Optional[ty.Union[ty.Dict[str, object], ty.List[object]]]
-SerializationType = ty.Dict[str, ty.Union[str, int, float]]
+ValuesFilledType = ty.Dict[str, ty.Union[str, float, bool]]
+ValuesType = ty.Optional[ValuesFilledType]
+# SerializationType = ty.Dict[str, ty.Union[str, int, float]]
 FADE_SHAPES = {
     'flat': 0,
     'smooth up': 1,
@@ -192,6 +195,7 @@ if ty.TYPE_CHECKING:
         articulation = '$articulation'
         part = '$part'
         dyn = '$dyn'
+        rr = '$rr'
 
 else:
 
@@ -225,6 +229,7 @@ else:
         articulation = '$articulation'
         part = '$part'
         dyn = '$dyn'
+        rr = '$rr'
 
 
 WildcardDict = ty.Dict[Wildcard, ty.Union[str, float]]
@@ -370,9 +375,9 @@ class BaseArt:
         Returns
         -------
         WildcardDict
-            Calculates inly necessary features for tokens.
+            Calculates only necessary features for tokens.
         """
-        ih = ItemsHandler()
+        ih = ItemsHandler() if items_handler is None else items_handler
         audio = ih.load_audio()
         wildcards: WildcardDict = {}
         for token in tokens:
@@ -436,26 +441,57 @@ class BaseArt:
 
         return None
 
-    def get_all_regions(self) -> ty.List[ty.Tuple[rpr.Region, object]]:
-        """Find closest Region with articulation metadata.
+    def _all_regions_with_keys(
+        self
+    ) -> ty.Tuple[ty.List[rpr.Region], ty.Iterable[str]]:
+        pr = rpr.Project()
+        regions = list(pr.regions)
+        keys = [f'{REGION_KEY}_{reg.index}_{self.name}' for reg in regions]
+        return regions, keys
 
-        Parameters
-        ----------
-        direction : str
-            'left' or 'right'
+    def erase_metadata(self) -> None:
+        with rpr.inside_reaper():
+            regions, keys = self._all_regions_with_keys()
+            keys = list(keys)
+            pprint(('erasing metadata for keys:', keys))
+            rpr.Project().map(
+                'set_ext_state', {'key': keys},
+                defaults={
+                    'section': GUI_SECTION,
+                    'pickled': False,
+                    'value': '',
+                }
+            )
+
+    def get_all_regions(
+        self
+    ) -> ty.List[ty.Tuple[rpr.Region, ty.Dict[str, object]]]:
+        """Get all regions with articulation metadata.
 
         Returns
         -------
-        Optional[Tuple[reapy.Region, object]]
-            region and metadata if any
+        List[Tuple[reapy.Region, Dict[str, object]]]
         """
-        pr = rpr.Project()
-        regions: ty.List[ty.Tuple[rpr.Region, object]] = []
-        for reg in pr.regions:
-            key = f'{REGION_KEY}_{reg.index}_{self.name}'
-            if metadata := pr.get_ext_state(GUI_SECTION, key, pickled=True):
-                regions.append((reg, metadata))
-        return regions
+        retvals: ty.List[ty.Tuple[rpr.Region, ty.Dict[str, object]]] = []
+        with rpr.inside_reaper():
+            regions, keys = self._all_regions_with_keys()
+            metadatas = pickle.loads(
+                rpr.Project().map(
+                    'get_ext_state', {
+                        'key': keys
+                    },
+                    defaults={
+                        'section': GUI_SECTION,
+                        'pickled': True
+                    },
+                    pickled_out=True
+                ).encode('latin-1')
+            )
+            for reg, metadata in zip(regions, metadatas):
+                if metadata:
+                    retvals.append((reg, metadata))
+        pprint(retvals)
+        return retvals
 
 
 class ArtError(Exception):
@@ -518,7 +554,7 @@ class ArtsHandler:
             tooltip='instrument name to be used in mask'
         )
         self.region_mask = sg.Input(
-            '$instrument,$articulation,$part,$dyn,$peakdB,$mediandB,$root',
+            '$instrument,$articulation,$part,$dyn,$rr,$root',
             key=self.key_ns + 'region_mask',
             enable_events=True,
             size=(self.text_width, 1),
@@ -626,12 +662,13 @@ class ArtsHandler:
             ]
         region.add_rendered_tracks(tracks)
         key = f'{REGION_KEY}_{region.index}_{art.name}'
+        print(key, region.start, region.enum_index, region_name)
         rpr.Project().set_ext_state(GUI_SECTION, key, metadata, pickled=True)
         # # toggle repeat
         # rpr.perform_action(1068)
         # rpr.perform_action(1068)
         # rpr.update_timeline()
-        rpr.Project().end_undo_block(undo_name)
+        # rpr.Project().end_undo_block(undo_name)
         return region
 
     @property
@@ -649,9 +686,14 @@ class ArtsHandler:
         # check if arts can do something with event and need for region
         try:
             for art in self.arts_instances:
+                if not isinstance(values, ty.Dict):
+                    raise TypeError(f'values are of bad type: {type(values)}')
                 retval = art.read(event, values, self.region_tokens)
                 if retval is not None:
-                    self.make_region(*retval, art)
+                    for contents in retval:
+                        self.make_region(*contents, art)
+                        undo_name = contents[3]
+                    rpr.Project().end_undo_block(undo_name)
                     return None
         except ArtError as e:
             return e
@@ -714,6 +756,23 @@ class ArtsHandler:
         ], arts_instances
 
 
+class MainMenu:
+
+    clear_settings = \
+        'Clear settings from project (will remove unused names)'
+    reset_settings = \
+        'Reset settings to Defaults (sliders will be set to defaults)'
+
+    def __init__(self) -> None:
+        self.layout = [
+            sg.MenuBar(
+                [['Prefs', [self.clear_settings, self.reset_settings]]],
+                background_color=sg.DEFAULT_BACKGROUND_COLOR,
+                key='main_menu'
+            )
+        ]
+
+
 def _load_values(window: sg.Window) -> None:
     """Get saved controls from project file.
 
@@ -725,10 +784,12 @@ def _load_values(window: sg.Window) -> None:
     if values in (None, ''):
         return
     for key, val in values.items():  # type:ignore
+        if key == 'main_menu':
+            continue
         try:
             window[key].update(val)
         except AttributeError as e:
-            warn(f'Cannot set value for element: {e}')
+            warn(f'{type(e)}: Cannot set value for element: {e}')
 
 
 def _make_window(
@@ -744,6 +805,8 @@ def _make_window(
         If True — project will be checked for saved controls data.
     """
     layout = []
+    menu = MainMenu()
+    layout.append(menu.layout)
     for sub_lay in (loop_slicer.layout, arts_handler.layout):
         layout.extend(sub_lay)
 
@@ -783,7 +846,15 @@ def ah_read(
     return ah, window
 
 
-def run(load_values: bool = True) -> None:
+def _serialize(serialized: ty.Dict[str, ty.Union[str, float, bool]]) -> None:
+    rpr.Project().set_ext_state(GUI_SECTION, GUI_KEY, serialized, pickled=True)
+
+
+def _un_serialize() -> None:
+    rpr.Project().set_ext_state(GUI_SECTION, GUI_KEY, '', pickled=True)
+
+
+def run(load_values: bool = True, theme: str = '') -> None:
     """Main GUI function, used to launch script.
 
     Parameters
@@ -791,12 +862,14 @@ def run(load_values: bool = True) -> None:
     load_values : bool, optional
         If loading of persistent values is needed.
     """
+    sg.theme(theme)
     ls = LoopSlicerGui()
     ah = ArtsHandler()
+    serialized: ValuesType
     if load_values:
-        serialized = rpr.Project().get_ext_state(
-            GUI_SECTION, GUI_KEY, pickled=True
-        )
+        serialized = rpr.Project(  # type:ignore
+        ).get_ext_state(GUI_SECTION, GUI_KEY, pickled=True)
+        # print(serialized)
         if serialized and serialized[ah.key_ns + 'arts_file'] != '':
             tabs_layout, arts = ah.load_arts(serialized)
             ah = ArtsHandler(tabs_layout, arts)
@@ -808,6 +881,16 @@ def run(load_values: bool = True) -> None:
         if event == sg.WIN_CLOSED:
             # values = values
             break
+        if event == MainMenu.clear_settings:
+            if values is None:
+                warn('Something strange happening: values are None')
+                continue
+            serialized = values
+            _serialize(serialized)
+        if event == MainMenu.reset_settings:
+            print('resetting')
+            window.close()
+            run(theme=theme, load_values=False)
         serialized = values
 
         check_for_exception(ls.read(event, values))
@@ -815,7 +898,5 @@ def run(load_values: bool = True) -> None:
             ah, event, values, serialized, ls, load_values, window
         )
     if serialized is not None:
-        rpr.Project().set_ext_state(
-            GUI_SECTION, GUI_KEY, serialized, pickled=True
-        )
+        _serialize(serialized)
     window.close()
