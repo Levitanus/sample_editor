@@ -10,14 +10,14 @@ Docs are coming with the first minor release.
 
 ## Installation Guide
 
-Sample editor is Reaper Python extension, so You're first need [Reaper](reaper.fm/) and [Python](python.org). Make sure the both have the same architacture: if Reaper is x64 — you need Python x64.
+Sample editor is Reaper Python extension, so You're first need [Reaper](reaper.fm/) and [Python](python.org). Make sure the both have the same architecture: if Reaper is x64 — you need Python x64.
 
 When both programms are installed, run Reaper and open command line (or terminal).
 
 ```
 pip install psutil 
 pip install git+https://github.com/Levitanus/sample_editor
-python -c "import reapy; reapy.configure_reaper()"
+python -c "import reapy_boost; reapy_boost.configure_reaper()"
 ```
 
 then restart Reaper
