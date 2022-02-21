@@ -12,5 +12,5 @@ setup(
     },
     packages=['sample_editor'],  # same as name
     package_data={'sample_editor': ['py.typed']},
-    install_requires=['aenum', 'librosa', 'python-reapy'],
+    install_requires=['aenum', 'librosa', 'reapy-boost', 'PySimpleGUI'],
 )

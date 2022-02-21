@@ -1,6 +1,6 @@
 import typing as ty
 
-import reapy as rpr
+import reapy_boost as rpr
 import librosa as lr
 import numpy as np
 import math

@@ -1,7 +1,7 @@
 from enum import Enum, auto
 import math
 import typing as ty
-import reapy as rpr
+import reapy_boost as rpr
 from types import TracebackType
 import librosa as lr
 

@@ -1,7 +1,8 @@
 import typing as ty
+from warnings import warn
 import PySimpleGUI as sg
 from aenum import extend_enum
-import reapy as rpr
+import reapy_boost as rpr
 
 from sample_editor.item_handler import ItemsHandler, ItemHandler, ItemsError
 from sample_editor.gui import (
@@ -21,7 +22,10 @@ from sample_editor import widgets
 from pprint import pprint
 
 for name, value in (('sul', '$sul'), ):
-    extend_enum(Wildcard, name, value)
+    try:
+        extend_enum(Wildcard, name, value)
+    except TypeError as e:
+        warn(str(e))
 
 
 class Trem(BaseArt):

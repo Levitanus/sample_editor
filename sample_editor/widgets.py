@@ -1,6 +1,6 @@
 import typing as ty
 import PySimpleGUI as sg
-import reapy as rpr
+import reapy_boost as rpr
 from pprint import pprint
 
 from .gui import (LayoutType, FADE_SHAPES, ValuesFilledType)

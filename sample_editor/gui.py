@@ -14,7 +14,7 @@ from .item_handler import ItemsHandler, ItemsError
 from .loop_finder import LoopFinder, LoopSlicer, LoopError
 from .pitch_tracker import estimate_entire_root
 from .loudness import get_rms, amplitude_to_db
-import reapy as rpr
+import reapy_boost as rpr
 
 GUI_SECTION = 'SampleEditor'
 GUI_KEY = 'CONTROL_VALUES'
@@ -862,7 +862,8 @@ def run(load_values: bool = True, theme: str = '') -> None:
     load_values : bool, optional
         If loading of persistent values is needed.
     """
-    sg.theme(theme)
+    if theme:
+        sg.theme(theme)
     ls = LoopSlicerGui()
     ah = ArtsHandler()
     serialized: ValuesType

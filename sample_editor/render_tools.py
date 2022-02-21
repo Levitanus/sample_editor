@@ -1,5 +1,5 @@
 import typing as ty
-import reapy as rpr
+import reapy_boost as rpr
 
 from .loudness import get_rms, get_first_rms_value_ms
 from .item_handler import ItemsHandler
